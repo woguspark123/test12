@@ -211,6 +211,7 @@
 
         .slider-wrapper {
             display: flex;
+            /* JS에서 transition을 동적으로 제어합니다 */
             transition: transform 0.8s cubic-bezier(0.65, 0, 0.35, 1);
         } 
 
@@ -446,7 +447,7 @@
     </div> 
 
     <script>
-        // 1. 데이터 정의 (가독성 있게 정리)
+        // 1. 데이터 정의
         const teamData = [
             { 
                 id: 1, name: '박재현', emoji: '🫅', 
@@ -484,10 +485,10 @@
             { name: '우리 팀 단체사진', photo: 'https://lh3.googleusercontent.com/d/1PoJqpdMFy2d3qbKlnkFcZEAU8RBzS1R8' }
         ]; 
 
-        // 갤러리 리스트: 단체사진을 맨 앞으로, 그 뒤에 팀원 사진 추가
-        const galleryList = [...groupPhotos, ...teamData]; 
+        // 갤러리 원본 리스트
+        const rawGalleryList = [...groupPhotos, ...teamData]; 
 
-        // 2. DOM 요소 렌더링
+        // 2. DOM 요소 렌더링 (팀원 카드)
         const teamGrid = document.getElementById('teamGrid');
         teamData.forEach(member => {
             const card = document.createElement('div');
@@ -501,72 +502,111 @@
             teamGrid.appendChild(card);
         }); 
 
+        // 3. 루프 슬라이더 렌더링
         const sliderWrapper = document.getElementById('sliderWrapper');
         const sliderDots = document.getElementById('sliderDots');
-        galleryList.forEach((item, idx) => {
+
+        // [무한 루프 핵심] 슬라이드 복제하여 배치
+        // 원본: [1, 2, 3] -> 복제후: [3(복제), 1, 2, 3, 1(복제)]
+        const firstClone = rawGalleryList[0];
+        const lastClone = rawGalleryList[rawGalleryList.length - 1];
+        const loopGalleryList = [lastClone, ...rawGalleryList, firstClone];
+
+        loopGalleryList.forEach((item, idx) => {
             const slide = document.createElement('div');
             slide.className = 'slide';
             slide.innerHTML = `<img src="${item.photo}" alt="${item.name}" loading="lazy">`;
             sliderWrapper.appendChild(slide); 
+        });
 
+        // 인디케이터(점)는 원본 개수만큼만 생성
+        rawGalleryList.forEach((_, idx) => {
             const dot = document.createElement('div');
             dot.className = `dot ${idx === 0 ? 'active' : ''}`;
             dot.onclick = () => {
-                goToSlide(idx);
-                resetTimer(); // 수동 조작 시 타이머 초기화
+                goToRealIndex(idx);
+                resetTimer();
             };
             sliderDots.appendChild(dot);
-        }); 
+        });
 
-        // 3. 슬라이더 제어 로직
-        let currentIdx = 0;
+        // 4. 슬라이더 제어 로직 (Loop)
+        let currentIdx = 1; // 첫 번째 진짜 슬라이드에서 시작 (index 0은 복제본)
+        let isTransitioning = false;
         let slideTimer;
-        const AUTO_PLAY_TIME = 5000;
+        const AUTO_PLAY_TIME = 5000; 
 
-        function updateSlider() {
+        // 초기 위치 설정
+        sliderWrapper.style.transition = 'none';
+        sliderWrapper.style.transform = `translateX(-${currentIdx * 100}%)`;
+
+        function updateSlider(animate = true) {
+            if (animate) {
+                sliderWrapper.style.transition = 'transform 0.8s cubic-bezier(0.65, 0, 0.35, 1)';
+            } else {
+                sliderWrapper.style.transition = 'none';
+            }
             sliderWrapper.style.transform = `translateX(-${currentIdx * 100}%)`;
+            
+            // 점(Dot) 활성화 상태 업데이트
+            let realIdx = currentIdx - 1;
+            if (currentIdx === 0) realIdx = rawGalleryList.length - 1;
+            if (currentIdx === loopGalleryList.length - 1) realIdx = 0;
+            
             document.querySelectorAll('.dot').forEach((d, i) => {
-                d.classList.toggle('active', i === currentIdx);
+                d.classList.toggle('active', i === realIdx);
             });
-        }
-
-        function goToSlide(idx) { 
-            currentIdx = idx; 
-            updateSlider(); 
-        }
+        } 
 
         function nextSlide() {
-            currentIdx = (currentIdx + 1) % galleryList.length;
-            updateSlider();
-        }
+            if (isTransitioning) return;
+            isTransitioning = true;
+            currentIdx++;
+            updateSlider(true);
+        } 
 
         function prevSlide() {
-            currentIdx = (currentIdx - 1 + galleryList.length) % galleryList.length;
-            updateSlider();
+            if (isTransitioning) return;
+            isTransitioning = true;
+            currentIdx--;
+            updateSlider(true);
         }
 
-        // 타이머 초기화 함수: 사용자가 버튼을 누르면 기존 타이머를 끄고 새로 시작함
+        function goToRealIndex(idx) {
+            if (isTransitioning) return;
+            isTransitioning = true;
+            currentIdx = idx + 1;
+            updateSlider(true);
+        }
+
+        // 트랜지션 종료 후 루프 보정 처리
+        sliderWrapper.addEventListener('transitionend', () => {
+            isTransitioning = false;
+            // 끝에 도달했을 때 눈속임 이동
+            if (currentIdx === loopGalleryList.length - 1) {
+                currentIdx = 1;
+                updateSlider(false);
+            }
+            // 처음에 도달했을 때 눈속임 이동
+            if (currentIdx === 0) {
+                currentIdx = loopGalleryList.length - 2;
+                updateSlider(false);
+            }
+        });
+
         function resetTimer() {
             clearInterval(slideTimer);
             slideTimer = setInterval(() => {
-                // 모달이 열려있지 않을 때만 자동 재생
                 if(modal.style.display !== 'flex') {
                     nextSlide();
                 }
             }, AUTO_PLAY_TIME);
-        }
+        } 
 
-        // 버튼 이벤트 바인딩
-        document.getElementById('nextBtn').onclick = () => {
-            nextSlide();
-            resetTimer();
-        };
-        document.getElementById('prevBtn').onclick = () => {
-            prevSlide();
-            resetTimer();
-        }; 
+        document.getElementById('nextBtn').onclick = () => { nextSlide(); resetTimer(); };
+        document.getElementById('prevBtn').onclick = () => { prevSlide(); resetTimer(); }; 
 
-        // 4. 모달 로직
+        // 5. 모달 로직
         const modal = document.getElementById('modal');
         function showModal(m) {
             document.getElementById('modalImg').src = m.photo;
@@ -577,18 +617,18 @@
             document.getElementById('infoMbti').innerText = m.mbti;
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
-        }
+        } 
 
         document.getElementById('closeModal').onclick = () => {
             modal.style.display = 'none';
             document.body.style.overflow = 'auto';
-        };
+        }; 
 
         modal.onclick = (e) => { 
             if(e.target === modal) document.getElementById('closeModal').click(); 
         }; 
 
-        // 5. 스크롤 애니메이션 및 상단 이동 버튼
+        // 6. 스크롤 애니메이션 및 상단 이동 버튼
         const reveals = document.querySelectorAll('.reveal');
         const topBtn = document.getElementById('scrollTop');
         
@@ -606,10 +646,10 @@
         window.addEventListener('scroll', handleScroll);
         topBtn.onclick = () => window.scrollTo({top: 0, behavior: 'smooth'});
         
-        // 초기 실행
         handleScroll(); 
-        resetTimer(); // 슬라이더 자동 재생 시작
+        resetTimer(); 
 
     </script>
 </body>
 </html>
+
